@@ -1,0 +1,38 @@
+{
+    "name": "smile/module-elasticsuite-inventory-catalog",
+    "type": "magento2-module",
+    "license": "OSL-3.0",
+    "authors": [{
+            "name": "Richard BAYET",
+            "email": "richard.bayet@smile.fr"
+        }
+    ],
+    "description": "ElasticSuite - Multi-Source Inventory support for catalog search module.",
+    "homepage": "https://github.com/Smile-SA/elasticsuite",
+    "keywords": [
+        "magento",
+        "magento2",
+        "elasticsearch",
+        "search",
+        "merchandising",
+        "core",
+        "setup"
+    ],
+    "require": {
+        "magento/framework": ">=101.0.0",
+        "magento/module-store": ">=100.2.0",
+        "magento/module-backend": ">=100.2.0",
+        "magento/module-catalog": ">=102.0.0",
+        "magento/module-catalog-search": ">=100.2.0",
+        "magento/magento-composer-installer": "*"
+    },
+    "version": "2.4.0",
+    "autoload": {
+        "files": [
+            "registration.php"
+        ],
+        "psr-4": {
+            "Smile\\ElasticsuiteInventoryCatalog\\": ""
+        }
+    }
+}

@@ -231,4 +231,10 @@
                 sortOrder="100"
         />
     </type>
+
+    <type name="Smile\ElasticsuiteCatalog\Model\Product\Indexer\Fulltext\Datasource\InventoryData">
+        <arguments>
+            <argument name="resourceModel" xsi:type="object">Smile\ElasticsuiteCatalog\Model\ResourceModel\Product\Indexer\Fulltext\Datasource\InventoryData</argument>
+        </arguments>
+    </type>
 </config>

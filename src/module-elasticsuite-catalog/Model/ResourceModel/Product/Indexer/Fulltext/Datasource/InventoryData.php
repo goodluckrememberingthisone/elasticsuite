@@ -26,7 +26,7 @@ use Smile\ElasticsuiteCatalog\Model\ResourceModel\Eav\Indexer\Indexer;
  * @package  Smile\ElasticsuiteCatalog
  * @author   Romain Ruaud <romain.ruaud@smile.fr>
  */
-class InventoryData extends Indexer
+class InventoryData extends Indexer implements InventoryDataInterface
 {
     /**
      * @var \Magento\CatalogInventory\Api\StockRegistryInterface
@@ -68,6 +68,7 @@ class InventoryData extends Indexer
 
     /**
      * Load inventory data for a list of product ids and a given store.
+     * Expected rows structure : ['product_id', 'stock_status', 'qty'].
      *
      * @param integer $storeId    Store id.
      * @param array   $productIds Product ids list.
