@@ -29,20 +29,30 @@ define([
             maxRefreshInterval: 1000,
             imports: {
                 formData: "${ $.provider }:data",
-                blacklistedProducts: "${ $.provider }:data.blacklisted_products"
+                blacklistedProducts: "${ $.provider }:data.blacklisted_products",
+                defaultBlacklistedProducts: "${ $.provider }:data.default.blacklisted_products",
+                defaultSortedProducts: "${ $.provider }:data.default.sorted_products"
             },
             links: {
-                blacklistedProducts: "${ $.provider }.data.blacklisted_products"
+                blacklistedProducts: "${ $.provider }.data.blacklisted_products",
+                defaultBlacklistedProducts: "${ $.provider }:data.default.blacklisted_products",
+                defaultSortedProducts: "${ $.provider }:data.default.sorted_products"
             },
             messages : {
                 emptyText     : $.mage.__('Your product selection is empty.'),
                 automaticSort : $.mage.__('Automatic Sort'),
                 manualSort    : $.mage.__('Manual Sort'),
-                showMore      : $.mage.__('Show more')
+                showMore      : $.mage.__('Show more'),
+                previewOnlyModeText : $.mage.__('Preview Only Mode')
             },
             forceLoading : false,
             allowBlacklist : false,
+            previewOnlyMode : false,
             blacklistedProducts: [],
+            defaultSortedProducts: "{}",
+            defaultBlacklistedProducts: [],
+            storeSortedProducts: "{}",
+            storeBlacklistedProducts: [],
             modules: {
                 provider: '${ $.provider }'
             }
@@ -59,8 +69,9 @@ define([
             this.pageSize           = parseInt(this.pageSize, 10);
             this.currentSize        = this.pageSize;
             this.enabled            = this.loadUrl != null;
+            this.previewOnlyMode    = (this.scopeSwitcher != null) && (parseInt(this.scopeSwitcher, 10) == 0) && (this.formData.store_id != 0);
 
-            this.observe(['products', 'countTotalProducts', 'currentSize', 'editPositions', 'loading', 'showSpinner', 'blacklistedProducts']);
+            this.observe(['products', 'countTotalProducts', 'currentSize', 'editPositions', 'loading', 'showSpinner', 'blacklistedProducts', 'previewOnlyMode']);
 
             this.editPositions.subscribe(function () { this.value(JSON.stringify(this.editPositions())); }.bind(this));
 
@@ -93,7 +104,29 @@ define([
                 });
             }
         },
-        
+
+        switchScope: function(useStorePositions) {
+            if (parseInt(useStorePositions, 10) == 0) {
+                // Backup current store level positions and blacklist.
+                this.storeSortedProducts = JSON.stringify(this.editPositions());
+                this.storeBlacklistedProducts = this.blacklistedProducts().slice(0);
+                // Switch positions and blacklist.
+                this.editPositions = JSON.parse(this.defaultSortedProducts);
+                this.blacklistedProducts(this.defaultBlacklistedProducts.slice(0));
+            } else {
+                // Restore store level positions and blacklist.
+                this.editPositions = JSON.parse(this.storeSortedProducts);
+                this.blacklistedProducts(this.storeBlacklistedProducts.slice(0));
+            }
+            // Recreate required observers/subscriptions.
+            this.observe(['editPositions']);
+            this.editPositions.subscribe(function () { this.value(JSON.stringify(this.editPositions())); }.bind(this));
+
+            this.previewOnlyMode(!this.previewOnlyMode());
+
+            this.refreshProductList();
+        },
+
         refreshProductList: function () {
             if (this.refreshRateLimiter !== undefined) {
                 clearTimeout();
@@ -218,6 +251,9 @@ define([
         },
         
         toggleSortType: function (product) {
+            if (this.previewOnlyMode()) {
+                return;
+            }
             var products      = this.products();
             var editPositions = this.editPositions();
             
@@ -250,6 +286,9 @@ define([
         },
 
         toggleBlackListed: function(product) {
+            if (this.previewOnlyMode()) {
+                return;
+            }
             var state = !product.isBlacklisted();
             product.setIsBlacklisted(state);
 

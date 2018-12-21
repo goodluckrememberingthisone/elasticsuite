@@ -132,6 +132,24 @@ class VirtualCategorySetup
             ]
         );
 
+        $eavSetup->addAttribute(
+            Category::ENTITY,
+            'use_store_positions',
+            [
+                'type'       => 'int',
+                'input'      => 'select',
+                'source'     => 'Magento\Eav\Model\Entity\Attribute\Source\Boolean',
+                'label'      => 'Use store positions',
+                'global'     => \Magento\Eav\Model\Entity\Attribute\ScopedAttributeInterface::SCOPE_STORE,
+                'required'   => true,
+                'default'    => 0,
+                'visible'    => true,
+                'note'       => "Use store positions.",
+                'sort_order' => 220,
+                'group'      => 'General Information',
+            ]
+        );
+
         // Force the frontend input to be null for these attributes since they are managed by code.
         $eavSetup->updateAttribute(Category::ENTITY, 'is_virtual_category', 'frontend_input', null);
         $eavSetup->updateAttribute(Category::ENTITY, 'virtual_category_root', 'frontend_input', null);
@@ -221,6 +239,13 @@ class VirtualCategorySetup
                 'Product ID'
             )
             ->addColumn(
+                'store_id',
+                \Magento\Framework\DB\Ddl\Table::TYPE_SMALLINT,
+                null,
+                ['unsigned' => true, 'nullable' => false, 'primary' => true, 'default' => '0'],
+                'Store ID'
+            )
+            ->addColumn(
                 'position',
                 \Magento\Framework\DB\Ddl\Table::TYPE_INTEGER,
                 null,
@@ -247,6 +272,13 @@ class VirtualCategorySetup
                 'product_id',
                 $setup->getTable('catalog_product_entity'),
                 'entity_id',
+                \Magento\Framework\DB\Ddl\Table::ACTION_CASCADE
+            )
+            ->addForeignKey(
+                $setup->getFkName($tableName, 'store_id', 'store', 'store_id'),
+                'store_id',
+                $setup->getTable('store'),
+                'store_id',
                 \Magento\Framework\DB\Ddl\Table::ACTION_CASCADE
             )
             ->setComment('Catalog product position for the virtual categories module.');
@@ -288,6 +320,48 @@ class VirtualCategorySetup
                 'nullable' => true,
                 'comment'  => 'Position',
             ]
+        );
+    }
+
+    /**
+     * Add 'store_id' column to 'smile_virtualcategory_catalog_category_product_position'
+     * and make it part of the table compound primary key.
+     *
+     * @param \Magento\Framework\Setup\SchemaSetupInterface $setup Setup interface
+     */
+    public function addStoreIdColumnToPositionTable(SchemaSetupInterface $setup)
+    {
+        $tableName = $setup->getTable('smile_virtualcategory_catalog_category_product_position');
+
+        $setup->getConnection()->addColumn(
+            $tableName,
+            'store_id',
+            [
+                'type'     => \Magento\Framework\DB\Ddl\Table::TYPE_SMALLINT,
+                'unsigned' => true,
+                'nullable' => false,
+                'default'  => 0,
+                'comment'  => 'Store ID',
+                'after'    => 'product_id',
+            ]
+        );
+
+        $primaryKeyName = $setup->getConnection()->getPrimaryKeyName($tableName);
+        // The existing primary key will be dropped.
+        $setup->getConnection()->addIndex(
+            $tableName,
+            $primaryKeyName,
+            ['category_id', 'product_id', 'store_id'],
+            AdapterInterface::INDEX_TYPE_PRIMARY
+        );
+
+        $setup->getConnection()->addForeignKey(
+            $setup->getFkName($tableName, 'store_id', $setup->getTable('store'), 'store_id'),
+            $tableName,
+            'store_id',
+            $setup->getTable('store'),
+            'store_id',
+            \Magento\Framework\DB\Ddl\Table::ACTION_CASCADE
         );
     }
 
@@ -343,6 +417,37 @@ class VirtualCategorySetup
         );
 
         $this->reindexFlatCategories();
+    }
+
+    /**
+     * Add the attribute handling the per-store merchandiser
+     *
+     * @param \Magento\Eav\Setup\EavSetup $eavSetup EAV Setup
+     *
+     * @return void
+     */
+    public function addUseStorePositionsAttribute(\Magento\Eav\Setup\EavSetup $eavSetup)
+    {
+        $eavSetup->addAttribute(
+            Category::ENTITY,
+            'use_store_positions',
+            [
+                'type'       => 'int',
+                'input'      => 'select',
+                'source'     => 'Magento\Eav\Model\Entity\Attribute\Source\Boolean',
+                'label'      => 'Use store positions',
+                'global'     => \Magento\Eav\Model\Entity\Attribute\ScopedAttributeInterface::SCOPE_STORE,
+                'required'   => true,
+                'default'    => 0,
+                'visible'    => true,
+                'note'       => "Use store positions.",
+                'sort_order' => 220,
+                'group'      => 'General Information',
+            ]
+        );
+
+        // Mandatory to ensure next installers will have proper EAV Attributes definitions.
+        $this->eavConfig->clear();
     }
 
     /**
