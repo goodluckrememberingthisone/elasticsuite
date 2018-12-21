@@ -12,9 +12,11 @@
  */
 namespace Smile\ElasticsuiteVirtualCategory\Setup;
 
+use Magento\Catalog\Api\Data\CategoryInterface;
 use Magento\Catalog\Model\Category;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\Setup\SchemaSetupInterface;
+use Magento\Framework\EntityManager\MetadataPool;
 
 /**
  * Generic Setup class for Virtual Categories
@@ -27,6 +29,11 @@ use Magento\Framework\Setup\SchemaSetupInterface;
  */
 class VirtualCategorySetup
 {
+    /**
+     * @var \Magento\Framework\EntityManager\MetadataPool
+     */
+    private $metadataPool;
+
     /**
      * @var \Magento\Eav\Model\Config $eavConfig
      */
@@ -55,6 +62,7 @@ class VirtualCategorySetup
     /**
      * VirtualCategorySetup constructor.
      *
+     * @param \Magento\Framework\EntityManager\MetadataPool      $metadataPool              Metadata Pool.
      * @param \Magento\Eav\Model\Config                          $eavConfig                 EAV Config.
      * @param \Magento\Framework\DB\FieldDataConverterFactory    $fieldDataConverterFactory Field Data converter factory.
      * @param \Magento\Framework\DB\Select\QueryModifierFactory  $queryModifierFactory      Query Modifier Factory.
@@ -62,12 +70,14 @@ class VirtualCategorySetup
      * @param \Magento\Catalog\Model\Indexer\Category\Flat\State $flatCategoryIndexState    Category flat index state.
      */
     public function __construct(
+        \Magento\Framework\EntityManager\MetadataPool $metadataPool,
         \Magento\Eav\Model\Config $eavConfig,
         \Magento\Framework\DB\FieldDataConverterFactory $fieldDataConverterFactory,
         \Magento\Framework\DB\Select\QueryModifierFactory $queryModifierFactory,
         \Magento\Framework\Indexer\IndexerRegistry $indexerRegistry,
         \Magento\Catalog\Model\Indexer\Category\Flat\State $flatCategoryIndexState
     ) {
+        $this->metadataPool              = $metadataPool;
         $this->eavConfig                 = $eavConfig;
         $this->fieldDataConverterFactory = $fieldDataConverterFactory;
         $this->queryModifierFactory      = $queryModifierFactory;
@@ -136,6 +146,8 @@ class VirtualCategorySetup
         $eavSetup->updateAttribute(Category::ENTITY, 'is_virtual_category', 'frontend_input', null);
         $eavSetup->updateAttribute(Category::ENTITY, 'virtual_category_root', 'frontend_input', null);
         $eavSetup->updateAttribute(Category::ENTITY, 'virtual_rule', 'frontend_input', null);
+
+        $this->addUseDefaultPositionsAttribute($eavSetup);
 
         // Mandatory to ensure next installers will have proper EAV Attributes definitions.
         $this->eavConfig->clear();
@@ -221,6 +233,13 @@ class VirtualCategorySetup
                 'Product ID'
             )
             ->addColumn(
+                'store_id',
+                \Magento\Framework\DB\Ddl\Table::TYPE_SMALLINT,
+                null,
+                ['unsigned' => true, 'nullable' => false, 'primary' => true, 'default' => '0'],
+                'Store ID'
+            )
+            ->addColumn(
                 'position',
                 \Magento\Framework\DB\Ddl\Table::TYPE_INTEGER,
                 null,
@@ -247,6 +266,13 @@ class VirtualCategorySetup
                 'product_id',
                 $setup->getTable('catalog_product_entity'),
                 'entity_id',
+                \Magento\Framework\DB\Ddl\Table::ACTION_CASCADE
+            )
+            ->addForeignKey(
+                $setup->getFkName($tableName, 'store_id', 'store', 'store_id'),
+                'store_id',
+                $setup->getTable('store'),
+                'store_id',
                 \Magento\Framework\DB\Ddl\Table::ACTION_CASCADE
             )
             ->setComment('Catalog product position for the virtual categories module.');
@@ -288,6 +314,48 @@ class VirtualCategorySetup
                 'nullable' => true,
                 'comment'  => 'Position',
             ]
+        );
+    }
+
+    /**
+     * Add 'store_id' column to 'smile_virtualcategory_catalog_category_product_position'
+     * and make it part of the table compound primary key.
+     *
+     * @param \Magento\Framework\Setup\SchemaSetupInterface $setup Setup interface
+     */
+    public function addStoreIdColumnToPositionTable(SchemaSetupInterface $setup)
+    {
+        $tableName = $setup->getTable('smile_virtualcategory_catalog_category_product_position');
+
+        $setup->getConnection()->addColumn(
+            $tableName,
+            'store_id',
+            [
+                'type'     => \Magento\Framework\DB\Ddl\Table::TYPE_SMALLINT,
+                'unsigned' => true,
+                'nullable' => false,
+                'default'  => 0,
+                'comment'  => 'Store ID',
+                'after'    => 'product_id',
+            ]
+        );
+
+        $primaryKeyName = $setup->getConnection()->getPrimaryKeyName($tableName);
+        // The existing primary key will be dropped.
+        $setup->getConnection()->addIndex(
+            $tableName,
+            $primaryKeyName,
+            ['category_id', 'product_id', 'store_id'],
+            AdapterInterface::INDEX_TYPE_PRIMARY
+        );
+
+        $setup->getConnection()->addForeignKey(
+            $setup->getFkName($tableName, 'store_id', $setup->getTable('store'), 'store_id'),
+            $tableName,
+            'store_id',
+            $setup->getTable('store'),
+            'store_id',
+            \Magento\Framework\DB\Ddl\Table::ACTION_CASCADE
         );
     }
 
@@ -346,6 +414,40 @@ class VirtualCategorySetup
     }
 
     /**
+     * Add the attribute handling the per-store merchandiser
+     *
+     * @param \Magento\Eav\Setup\EavSetup $eavSetup EAV Setup
+     *
+     * @return void
+     */
+    public function addUseDefaultPositionsAttribute(\Magento\Eav\Setup\EavSetup $eavSetup)
+    {
+        $eavSetup->addAttribute(
+            Category::ENTITY,
+            'use_default_positions',
+            [
+                'type'       => 'int',
+                'input'      => 'select',
+                'source'     => 'Magento\Eav\Model\Entity\Attribute\Source\Boolean',
+                'label'      => 'Use default positions',
+                'global'     => \Magento\Eav\Model\Entity\Attribute\ScopedAttributeInterface::SCOPE_STORE,
+                'required'   => true,
+                'default'    => 1,
+                'visible'    => true,
+                'note'       => "Use default positions.",
+                'sort_order' => 220,
+                'group'      => 'General Information',
+            ]
+        );
+
+        // Set the attribute value to 1 for all existing categories.
+        $this->updateCategoryAttributeDefaultValue($eavSetup, Category::ENTITY, 'use_default_positions', 1);
+
+        // Mandatory to ensure next installers will have proper EAV Attributes definitions.
+        $this->eavConfig->clear();
+    }
+
+    /**
      * Process full reindexing of flat categories if enabled and not scheduled.
      */
     private function reindexFlatCategories()
@@ -354,5 +456,52 @@ class VirtualCategorySetup
             $flatCategoryIndexer = $this->indexerRegistry->get(\Magento\Catalog\Model\Indexer\Category\Flat\State::INDEXER_ID);
             $flatCategoryIndexer->reindexAll();
         }
+    }
+
+    /**
+     * Update attribute value for an entity with a default value.
+     * All existing values are erased by the new value.
+     *
+     * @param \Magento\Eav\Setup\EavSetup $eavSetup     EAV module Setup
+     * @param integer|string              $entityTypeId Target entity id.
+     * @param integer|string              $attributeId  Target attribute id.
+     * @param mixed                       $value        Value to be set.
+     * @param array                       $excludedIds  List of categories that should not be updated during the
+     *                                                  process.
+     *
+     * @return void
+     */
+    private function updateCategoryAttributeDefaultValue($eavSetup, $entityTypeId, $attributeId, $value, $excludedIds = [])
+    {
+        $setup          = $eavSetup->getSetup();
+        $entityTable    = $setup->getTable($eavSetup->getEntityType($entityTypeId, 'entity_table'));
+        $attributeTable = $eavSetup->getAttributeTable($entityTypeId, $attributeId);
+        $connection     = $setup->getConnection();
+
+        if (!is_int($attributeId)) {
+            $attributeId = $eavSetup->getAttributeId($entityTypeId, $attributeId);
+        }
+
+        // Retrieve the primary key name. May differs if the staging module is activated or not.
+        $linkField = $this->metadataPool->getMetadata(CategoryInterface::class)->getLinkField();
+
+        $entitySelect = $connection->select();
+        $entitySelect->from(
+            $entityTable,
+            [new \Zend_Db_Expr("{$attributeId} as attribute_id"), $linkField, new \Zend_Db_Expr("{$value} as value")]
+        );
+
+        if (!empty($excludedIds)) {
+            $entitySelect->where("entity_id NOT IN(?)", $excludedIds);
+        }
+
+        $insertQuery = $connection->insertFromSelect(
+            $entitySelect,
+            $attributeTable,
+            ['attribute_id', $linkField, 'value'],
+            \Magento\Framework\DB\Adapter\AdapterInterface::INSERT_ON_DUPLICATE
+        );
+
+        $connection->query($insertQuery);
     }
 }
