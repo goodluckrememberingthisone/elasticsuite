@@ -16,8 +16,9 @@ define([
     'Magento_Ui/js/form/element/abstract',
     'jquery',
     'Smile_ElasticsuiteCatalog/js/form/element/product-sorter/item',
+    'Magento_Ui/js/modal/confirm',
     'MutationObserver'
-], function (Component, $, Product) {
+], function (Component, $, Product, confirm) {
     'use strict';
 
     return Component.extend({
@@ -29,20 +30,32 @@ define([
             maxRefreshInterval: 1000,
             imports: {
                 formData: "${ $.provider }:data",
-                blacklistedProducts: "${ $.provider }:data.blacklisted_products"
+                blacklistedProducts: "${ $.provider }:data.blacklisted_products",
+                defaultBlacklistedProducts: "${ $.provider }:data.default.blacklisted_products",
+                defaultSortedProducts: "${ $.provider }:data.default.sorted_products"
             },
             links: {
-                blacklistedProducts: "${ $.provider }.data.blacklisted_products"
+                blacklistedProducts: "${ $.provider }.data.blacklisted_products",
+                defaultBlacklistedProducts: "${ $.provider }:data.default.blacklisted_products",
+                defaultSortedProducts: "${ $.provider }:data.default.sorted_products"
             },
             messages : {
                 emptyText     : $.mage.__('Your product selection is empty.'),
                 automaticSort : $.mage.__('Automatic Sort'),
                 manualSort    : $.mage.__('Manual Sort'),
-                showMore      : $.mage.__('Show more')
+                showMore      : $.mage.__('Show more'),
+                previewOnlyModeText : $.mage.__('Preview Only Mode'),
+                resetAllText         : $.mage.__('Reset'),
+                resetAllQuestionText : $.mage.__('Reset all products positions and blacklist status ?')
             },
             forceLoading : false,
             allowBlacklist : false,
+            previewOnlyMode : false,
             blacklistedProducts: [],
+            defaultSortedProducts: "{}",
+            defaultBlacklistedProducts: [],
+            storeSortedProducts: "{}",
+            storeBlacklistedProducts: [],
             modules: {
                 provider: '${ $.provider }'
             }
@@ -59,8 +72,10 @@ define([
             this.pageSize           = parseInt(this.pageSize, 10);
             this.currentSize        = this.pageSize;
             this.enabled            = this.loadUrl != null;
+            this.previewOnlyMode    = (this.scopeSwitcher != null) && (parseInt(this.scopeSwitcher, 10) == 1) && (this.formData.store_id != 0);
+            this.initialSwitchCopy  = this.previewOnlyMode;
 
-            this.observe(['products', 'countTotalProducts', 'currentSize', 'editPositions', 'loading', 'showSpinner', 'blacklistedProducts']);
+            this.observe(['products', 'countTotalProducts', 'currentSize', 'editPositions', 'loading', 'showSpinner', 'blacklistedProducts', 'previewOnlyMode']);
 
             this.editPositions.subscribe(function () { this.value(JSON.stringify(this.editPositions())); }.bind(this));
 
@@ -93,7 +108,58 @@ define([
                 });
             }
         },
-        
+
+        switchScope: function(useDefaultPositions) {
+            if (parseInt(useDefaultPositions, 10) == 1) {
+                // Backup current store level positions and blacklist.
+                this.storeSortedProducts = JSON.stringify(this.editPositions());
+                this.storeBlacklistedProducts = this.blacklistedProducts().slice(0);
+                // Switch positions and blacklist.
+                this.editPositions = JSON.parse(this.defaultSortedProducts);
+                this.blacklistedProducts(this.defaultBlacklistedProducts.slice(0));
+            } else {
+                if (this.initialSwitchCopy) {
+                    // Copy current (default) positions and blacklist to store level.
+                    this.storeSortedProducts = JSON.stringify(this.editPositions());
+                    this.storeBlacklistedProducts = this.blacklistedProducts().slice(0);
+                    this.initialSwitchCopy = false;
+                }
+                // Restore store level positions and blacklist.
+                this.editPositions = JSON.parse(this.storeSortedProducts);
+                this.blacklistedProducts(this.storeBlacklistedProducts.slice(0));
+            }
+            // Recreate required observers/subscriptions.
+            this.observe(['editPositions']);
+            this.editPositions.subscribe(function () { this.value(JSON.stringify(this.editPositions())); }.bind(this));
+
+            this.previewOnlyMode(!this.previewOnlyMode());
+
+            this.refreshProductList();
+        },
+
+        resetAllProducts: function() {
+            confirm({
+                content: this.messages.resetAllQuestionText,
+                actions: {
+                    /**
+                     * Confirm action.
+                     */
+                    confirm: function () {
+                        this.editPositions = JSON.parse("{}");
+                        this.blacklistedProducts([]);
+
+                        // Recreate required observers/subscriptions.
+                        this.observe(['editPositions']);
+                        this.editPositions.subscribe(function () { this.value(JSON.stringify(this.editPositions())); }.bind(this));
+
+                        this.refreshProductList();
+                    }.bind(this)
+                }
+            });
+
+            return false;
+        },
+
         refreshProductList: function () {
             if (this.refreshRateLimiter !== undefined) {
                 clearTimeout();
@@ -218,6 +284,9 @@ define([
         },
         
         toggleSortType: function (product) {
+            if (this.previewOnlyMode()) {
+                return;
+            }
             var products      = this.products();
             var editPositions = this.editPositions();
             
@@ -250,6 +319,9 @@ define([
         },
 
         toggleBlackListed: function(product) {
+            if (this.previewOnlyMode()) {
+                return;
+            }
             var state = !product.isBlacklisted();
             product.setIsBlacklisted(state);
 
